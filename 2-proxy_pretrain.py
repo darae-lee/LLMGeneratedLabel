@@ -13,13 +13,23 @@ from skimage import io, transform
 from sklearn.model_selection import train_test_split
 
 
-def dataset_split(label_type, context, data):
+def dataset_split(label_path, data):
+
+    directory, filename = os.path.split(label_path)
+    name, extension = os.path.splitext(filename)
+
+    train_filename = f"{name}_train{extension}"
+    test_filename = f"{name}_test{extension}"
+
+    train_path = os.path.join(directory, train_filename)
+    test_path = os.path.join(directory, test_filename)
+
     train, test = train_test_split(data, test_size=0.2, random_state=42)
 
-    train.to_csv(f"./train_context{context}_type{label_type}.csv", index=False)
-    test.to_csv(f"./test_context{context}_type{label_type}.csv", index=False)
+    train.to_csv(train_path, index=False)
+    test.to_csv(test_path, index=False)
     
-    return
+    return train_path, test_path
 
 
 def train_ordinal(train_loader, model, optimizer, epoch, batch_size):
@@ -66,48 +76,49 @@ def save_checkpoint(state, dirpath, model, arch_name):
     checkpoint_path = os.path.join(dirpath, filename)
     torch.save(state, checkpoint_path)
 
-def main(label_type, context):
-
-    data = pd.read_csv(f"./label_context{context}_type{label_type}.csv")
-    dataset_split(label_type, context, data)
+def main(label_path, image_dir, output_dir, BATCH_SIZE, EPOCH):
+    data = pd.read_csv(label_path)
+    train_path, test_path = dataset_split(label_path, data)
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-    train_proxy = OproxyDataset(metadata = f"./train_context{context}_type{label_type}.csv",
-                                root_dir = "./dataset",
+    train_proxy = OproxyDataset(metadata = train_path,
+                                root_dir = image_dir,
                                 transform=transforms.Compose([RandomRotate(),ToTensor(),Grayscale(prob = 0.1),
                                                             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]))
-    test_proxy = OproxyDataset(metadata = f"./test_context{context}_type{label_type}.csv", 
-                                root_dir = "./dataset",
+    test_proxy = OproxyDataset(metadata = test_path, 
+                                root_dir = image_dir,
                                 transform=transforms.Compose([ToTensor(),Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]))
-    train_loader = torch.utils.data.DataLoader(train_proxy, batch_size=50, shuffle=True, num_workers=0)
-    test_loader = torch.utils.data.DataLoader(test_proxy, batch_size=50, shuffle=False, num_workers=0) # 4->0
+    train_loader = torch.utils.data.DataLoader(train_proxy, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+    test_loader = torch.utils.data.DataLoader(test_proxy, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
     net = models.resnet18(pretrained = True)
     feature_size = net.fc.in_features
     net.fc = nn.Sequential()
     model = BinMultitask(net, feature_size, 10, 200, ordinal=False)
-
     model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr = 1e-4)
 
     best_acc = 0
-    epochs = 100
+    epochs = EPOCH
     for epoch in range(epochs):
-        train_ordinal(train_loader, model, optimizer, epoch, 50)
+        train_ordinal(train_loader, model, optimizer, epoch, BATCH_SIZE)
         if (epoch + 1) % 10 == 0:
             acc = test_ordinal(test_loader, model)
             if acc > best_acc:
                 print('state_saving...')
-                save_checkpoint({'state_dict': model.state_dict()}, './save_model', model, f"checkpoint_context{context}_type{label_type}")
+                save_checkpoint({'state_dict': model.state_dict()}, output_dir, model, f"checkpoint_context{context}_type{label_type}")
                 best_acc = acc
     return
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate labels from images.")
-    parser.add_argument("--type", type=str, help="Specify the type (0, 1, 2, 3, or 4).")
-    parser.add_argument("--context", type=int, help="Specify the context (0, 1, 2 or 3).")
+    parser.add_argument("--l-path", type=str)
+    parser.add_argument("--i-dir", type=str)
+    parser.add_argument("--o-dir", type=str)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--epoch", type=int)
     args = parser.parse_args()
 
-    main(args.type, args.context)
+    main(args.l_path, args.i_dir, args.o_dir, args.batch_size, args.epoch)

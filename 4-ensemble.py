@@ -24,20 +24,13 @@ import statistics
 import numpy as np
 
 
-def ensemble(is_grid, label_types, contexts):
-    
+def ensemble(path):
+    path_list = glob.glob(f'{path}/*')
     file_list = []
-    n = len(label_type)
-    if is_grid:
-        for i in range(n):
-            label_type = label_types[i]
-            context = contexts[i]
-            file_list.append(pd.read_csv(f'./finalcsv_grid/context{context}_type{label_type}.csv'))
-    else:
-        for i in range(n):
-            label_type = label_types[i]
-            context = contexts[i]
-            file_list.append(pd.read_csv(f'./finalcsv/context{context}_type{label_type}.csv'))
+
+    for file_name in path_list:
+        file_list.append(pd.read_csv(file_name))
+        print(file_list)
 
     ensemble_csv = pd.DataFrame(columns=["adm2","adm3","sigmaf",'pop'],dtype=object)
 
@@ -54,20 +47,12 @@ def ensemble(is_grid, label_types, contexts):
         newdata = pd.DataFrame({'adm2':[adm2], 'adm3':[adm3],'sigmaf':[mean],'pop':[pop]})
         ensemble_csv = ensemble_csv._append(newdata, ignore_index=True)
     
-    print(f"Context: {context}, Types: {label_types}")
-    print("Pearson corr: {}".format(round(finalcsv1[['sigmaf','pop']].corr(method='pearson')['sigmaf']['pop'],4)))
+    print("Pearson corr: {}".format(round(ensemble_csv[['sigmaf','pop']].corr(method='pearson')['sigmaf']['pop'],4)))
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description="Generate labels from images.")
-    parser.add_argument("--grid", type=bool, help="Is this grid or not? true or false")
-    parser.add_argument("--type", type=int, nargs="+", help="Specify the list of type (among 0, 1, 2, 3, and 4).")
-    parser.add_argument("--context", type=int, nargs="+", help="Specify the list of context (among 0, 1, 2, or 3).")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--path", type=str)
     args = parser.parse_args()
 
-    label_types = args.type if args.type else []
-
-    contexts = args.context if args.context else []
-
-    ensemble(args.grid, label_types, contexts)
+    ensemble(args.path)

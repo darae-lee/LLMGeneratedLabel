@@ -4,6 +4,7 @@ from PIL import Image
 import csv
 import pandas as pd
 import argparse
+import os
 
 def get_description(model, processor, device, context, image):
     prompt = ""
@@ -26,7 +27,6 @@ def get_description(model, processor, device, context, image):
                     )
 
     generated_text = processor.batch_decode(outputs, skip_special_tokens=True)[0].strip()
-    print(generated_text)
 
     return generated_text
 
@@ -40,30 +40,29 @@ def get_label(output):
         return [0, 0, 1]
     return
 
-def main(label_type, context_type):
-    processor = AutoProcessor.from_pretrained("instructblip_processor")
+def main(model_root, processor_root, data_dir, output_dir, label_type, context_type):
+    processor = AutoProcessor.from_pretrained(processor_root)
     print("processor downloaded")
-    model = AutoModelForVision2Seq.from_pretrained("instructblip_model", load_in_8bit=True)
+    model = AutoModelForVision2Seq.from_pretrained(model_root)
     print("model downloaded")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    description_file = pd.read_csv('./description.csv')
-
-    header = ["image_id", "type"]
-    output_file = open(f"./output_context{context_type}_type{label_type}.csv", 'w', newline='')
+    header = ["image", "type"]
+    output_file = open(f"./{output_dir}/output_context{context_type}_type{label_type}.csv", 'w', newline='')
     output_writer = csv.writer(output_file)
     output_writer.writerow(header)
 
-    label_file = open(f"./label_context{context_type}_type{label_type}.csv", 'w', newline='')
+    label_file = open(f"./{output_dir}/label_context{context_type}_type{label_type}.csv", 'w', newline='')
     label_writer = csv.writer(label_file)
-    label_writer.writerow(["image_id","urban","rural","environment"])
+    label_writer.writerow(["image","urban","rural","environment"])
 
-    data_path = "./dataset/"
-    data_count = 1
+    data_path = f"{data_dir}/"
+    image_files = [f for f in os.listdir(data_path) if f.endswith('.png')]
 
-    while data_count <= 1000:
-        image_path = data_path + str(data_count) + '.png'
+    for image_file in image_files:
+        image_path = os.path.join(data_path, image_file)
+        image_name, _ = os.path.splitext(os.path.basename(image_path))
         image = Image.open(image_path)
         context = ""
         prompt = ""
@@ -90,8 +89,6 @@ def main(label_type, context_type):
         elif label_type == 4: # development degree
             prompt += f"{context}Question: How developed is the area? Option: (a) highly developed city (b) developed rural (c) undeveloped environment. Answer:"
 
-        print(prompt)
-
         inputs = processor(images=image, text=prompt, return_tensors="pt").to(device)
 
         outputs = model.generate(
@@ -107,20 +104,24 @@ def main(label_type, context_type):
 
         generated_text = processor.batch_decode(outputs, skip_special_tokens=True)[0].strip()
 
-        row = [data_count, generated_text]
+        row = [image_name, generated_text]
         output_writer.writerow(row)
 
         generated_label = get_label(generated_text)
-        label_writer.writerow([data_count] + generated_label)
-
-        data_count += 1
+        label_writer.writerow([image_name] + generated_label)
 
     output_file.close()
+    label_file.close()
+    return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate labels from images.")
     parser.add_argument("--type", type=int, help="Specify the type (0, 1, 2, 3, or 4).")
     parser.add_argument("--context", type=int, help="Specify the context (0, 1, 2 or 3).")
+    parser.add_argument("--model", type=str)
+    parser.add_argument("--processor", type=str)
+    parser.add_argument("--d-dir", type=str)
+    parser.add_argument("--o-dir", type=str)
     args = parser.parse_args()
 
-    main(args.type, args.context)
+    main(args.model, args.processor, args.d_dir, args.o_dir, args.type, args.context)
