@@ -68,7 +68,7 @@ It generates Pearson correlation coefficient files named <code>{output_dir}/cont
 ## Ensemble
 
 ```
-python3.8 4-ensemble.py [--path PATH]
+python 4-ensemble.py [--path PATH]
 ```
 
 Ensemble the Pearson correlation coefficient files(generated in Evaluation) located in PATH, as the average value.
